@@ -24,6 +24,7 @@ import java.io.PrintWriter;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -67,6 +68,7 @@ public class Alphabet implements Serializable
         this.entryClass = entryClass;
         // someone could try to deserialize us into this image (e.g., by RMI).  Handle this.
         deserializedEntries.putIfAbsent(instanceId, this);
+        entryCacheTTL.put(instanceId, System.currentTimeMillis() + ONE_HOUR);
     }
 
     public Alphabet (Class entryClass) {
@@ -357,6 +359,21 @@ public class Alphabet implements Serializable
     }
 
     private transient static ConcurrentMap<UUID,Object> deserializedEntries = new ConcurrentHashMap<UUID,Object>();
+    private transient static ConcurrentMap<UUID, Long> entryCacheTTL = new ConcurrentHashMap<>();
+    private static Long ONE_HOUR = 3600000L;
+
+    public static int cleanCache() {
+        Long currentTime = System.currentTimeMillis();
+        int cacheEntriesRemoved = 0;
+        for(Map.Entry<UUID,Long> entry : entryCacheTTL.entrySet()) {
+            if (currentTime >= entry.getValue()) {
+                entryCacheTTL.remove(entry.getKey());
+                deserializedEntries.remove(entry.getKey());
+                cacheEntriesRemoved++;
+            }
+        }
+        return cacheEntriesRemoved;
+    }
 
     /**
      * This gets called after readObject; it lets the object decide whether
@@ -375,6 +392,7 @@ public class Alphabet implements Serializable
         }
         if (instanceId != null){
             Object prev = deserializedEntries.putIfAbsent(instanceId, this);
+            entryCacheTTL.put(instanceId, System.currentTimeMillis() + ONE_HOUR);
             if (prev != null) {
                 return prev;
             }
